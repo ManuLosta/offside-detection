@@ -6,7 +6,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 MODEL_NAME = "yolo11s.pt"
 PERSON_CLASS_ID = 0
-CONFIDENCE_THRESHOLD = 0.5
+CONFIDENCE_THRESHOLD = 0.3
 
 YOLO_POSE_MODEL = "yolo11m-pose.pt"
 POSE_IMAGE_SIZE = 640
