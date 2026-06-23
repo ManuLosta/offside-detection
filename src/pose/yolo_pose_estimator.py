@@ -39,14 +39,22 @@ class YOLOPoseEstimator:
         self,
         image: np.ndarray,
         detections: list[PlayerDetection],
+        player_ids: list[int] | None = None,
     ) -> list[PlayerPose]:
         if image.ndim != 3:
             raise ValueError(f"Expected 3-channel BGR image, got ndim={image.ndim}")
 
+        if player_ids is None:
+            player_ids = list(range(len(detections)))
+        if len(player_ids) != len(detections):
+            raise ValueError(
+                f"player_ids count ({len(player_ids)}) does not match detection count ({len(detections)})"
+            )
+
         image_height, image_width = image.shape[:2]
         poses: list[PlayerPose] = []
 
-        for player_id, detection in enumerate(detections):
+        for player_id, detection in zip(player_ids, detections):
             x1, y1, x2, y2 = detection.bbox
 
             crop_x1 = max(0, x1 - self.crop_padding)
