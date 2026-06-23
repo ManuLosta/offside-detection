@@ -5,6 +5,7 @@ from sklearn.cluster import KMeans
 
 from src.models.detection import PlayerDetection
 from src.models.team import PlayerTeam
+from src.team.color_features import FEATURE_DIM, extract_features
 
 logger = logging.getLogger(__name__)
 
@@ -78,3 +79,30 @@ def classify_teams(
     logger.info("Team counts: %s", team_counts)
 
     return teams
+
+
+class KMeansTeamClassifier:
+    """Team classifier that wraps feature extraction + KMeans clustering.
+
+    Implements the :class:`src.team.base.TeamClassifier` protocol. Returns only
+    classified players (``team_id != -1``); unknown players (referee,
+    goalkeeper, outliers) are filtered out.
+    """
+
+    def classify(
+        self,
+        image: np.ndarray,
+        detections: list[PlayerDetection],
+    ) -> list[PlayerTeam]:
+        features_list = [extract_features(image, detection.bbox) for detection in detections]
+        features = np.stack(features_list) if features_list else np.empty((0, FEATURE_DIM))
+        all_teams = classify_teams(features, detections)
+
+        unknown_count = sum(1 for team in all_teams if team.team_id == -1)
+        teams = [team for team in all_teams if team.team_id != -1]
+        logger.info(
+            "Filtered %d unknown player(s); keeping %d classified player(s)",
+            unknown_count,
+            len(teams),
+        )
+        return teams
