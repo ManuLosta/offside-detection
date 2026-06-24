@@ -15,6 +15,7 @@ import numpy as np
 from src.detection.base import Detector
 from src.detection.yolo_detector import YOLODetector
 from src.models.detection import PlayerDetection
+from src.models.pose import PlayerPose
 from src.models.team import PlayerTeam
 from src.pose.base import PoseEstimator
 from src.pose.yolo_pose_estimator import YOLOPoseEstimator
@@ -45,13 +46,16 @@ def run_pipeline(
 ) -> int:
     """Run the detection / team / pose pipeline.
 
-    ``stages`` is ``(run_detection, run_teams, run_poses)``; when all are
-    ``False`` the full pipeline runs. Engines default to the YOLO/KMeans
-    implementations; pass custom objects satisfying the protocols to swap them.
+    ``stages`` is ``(run_detection, run_teams, run_poses)``; at least one stage
+    must be requested, otherwise ``ValueError`` is raised. Engines default to
+    the YOLO/KMeans implementations; pass custom objects satisfying the
+    protocols to swap them.
     """
     run_detection, run_teams, run_poses = stages
     if not (run_detection or run_teams or run_poses):
-        run_detection = run_teams = run_poses = True
+        raise ValueError(
+            "At least one stage must be enabled in `stages`; got (False, False, False)."
+        )
 
     if not input_path.exists():
         logger.error("Input image not found: %s", input_path)
@@ -139,7 +143,7 @@ def _run_poses(
     input_path: Path,
     stem: str,
     poses_dir: Path,
-) -> None:
+) -> list[PlayerPose]:
     classified_ids = [team.player_id for team in teams]
     filtered_detections = [detections[i] for i in classified_ids]
 
@@ -152,6 +156,7 @@ def _run_poses(
     save_poses(poses_json_path, input_path, poses)
     save_image(poses_image_path, pose_annotated_image)
     logger.info("Total players with valid poses: %d", len(poses))
+    return poses
 
 
 def _resolve_detections(
