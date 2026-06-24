@@ -18,7 +18,7 @@ from src.models.detection import PlayerDetection
 from src.models.pose import PlayerPose
 from src.models.team import PlayerTeam
 from src.pose.base import PoseEstimator
-from src.pose.yolo_pose_estimator import YOLOPoseEstimator
+from src.pose.mediapipe_pose_estimator import MediaPipePoseEstimator
 from src.team.base import TeamClassifier
 from src.team.kmeans_classifier import KMeansTeamClassifier
 from src.utils.image import draw_detections, load_image, save_image
@@ -48,8 +48,8 @@ def run_pipeline(
 
     ``stages`` is ``(run_detection, run_teams, run_poses)``; at least one stage
     must be requested, otherwise ``ValueError`` is raised. Engines default to
-    the YOLO/KMeans implementations; pass custom objects satisfying the
-    protocols to swap them.
+    the YOLO/KMeans/MediaPipe implementations; pass custom objects satisfying
+    the protocols to swap them (e.g. ``pose_estimator=YOLOPoseEstimator()``).
     """
     run_detection, run_teams, run_poses = stages
     if not (run_detection or run_teams or run_poses):
@@ -83,7 +83,7 @@ def run_pipeline(
         teams = _run_teams(classifier, image, detections, stem, teams_dir)
 
     if run_poses:
-        estimator = pose_estimator or YOLOPoseEstimator()
+        estimator = pose_estimator or MediaPipePoseEstimator()
         detections = _resolve_detections(
             detections, image, detections_dir / f"{stem}_detections.json", detector
         )
