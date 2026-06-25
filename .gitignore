@@ -22,6 +22,7 @@ env/
 *.pth
 *.onnx
 *.engine
+*.task
 
 # Pipeline outputs
 data/output/*
