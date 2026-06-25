@@ -22,6 +22,7 @@ INPUT_DIR = PROJECT_ROOT / "data" / "input"
 OUTPUT_DIR = PROJECT_ROOT / "data" / "output"
 DETECTIONS_OUTPUT_DIR = OUTPUT_DIR / "detections"
 POSES_OUTPUT_DIR = OUTPUT_DIR / "poses"
+VANISHING_POINT_OUTPUT_DIR = OUTPUT_DIR / "vanishing_point"
 DEFAULT_INPUT_IMAGE = INPUT_DIR / "match.jpg"
 
 DEVICE = "0" if torch.cuda.is_available() else "cpu"

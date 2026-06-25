@@ -5,6 +5,7 @@ from pathlib import Path
 from src.models.detection import PlayerDetection
 from src.models.pose import PlayerPose
 from src.models.team import PlayerTeam
+from src.models.vanishing_point import VanishingPointResult
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,22 @@ def save_teams(
     }
 
     logger.info("Saving team assignments to: %s", path)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
+def save_vanishing_point(path: Path, result: VanishingPointResult) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if result.point is None:
+        payload = {"x": None, "y": None}
+    else:
+        payload = {
+            "x": round(result.point[0], 2),
+            "y": round(result.point[1], 2),
+        }
+
+    logger.info("Saving vanishing point to: %s", path)
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 

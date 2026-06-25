@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Detect football players and estimate poses in a match image."
+        description=(
+            "Run football analytics stages on a match image: players, teams, "
+            "poses and camera vanishing point."
+        )
     )
     parser.add_argument(
         "input",
@@ -45,17 +48,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run pose estimation only on classified players (requires existing team output).",
     )
+    parser.add_argument(
+        "--vanishing-point",
+        action="store_true",
+        help="Run vanishing point estimation only.",
+    )
     return parser.parse_args()
 
 
-def _resolve_stages(args: argparse.Namespace) -> tuple[bool, bool, bool]:
+def _resolve_stages(args: argparse.Namespace) -> tuple[bool, bool, bool, bool]:
     if args.detect:
-        return (True, False, False)
+        return (True, False, False, False)
     if args.teams:
-        return (False, True, False)
+        return (False, True, False, False)
     if args.poses:
-        return (False, False, True)
-    return (True, True, True)
+        return (False, False, True, False)
+    if args.vanishing_point:
+        return (False, False, False, True)
+    return (True, True, True, True)
 
 
 def main() -> int:

@@ -1,10 +1,9 @@
 """Pipeline orchestration for the offside-detection project.
 
-The pipeline is split into three swappable stages driven by the
-:class:`~src.detection.base.Detector`, :class:`~src.team.base.TeamClassifier`
-and :class:`~src.pose.base.PoseEstimator` protocols. Each stage loads upstream
-results from disk when available and recomputes them in memory otherwise, so
-any subset of stages can be run independently.
+The pipeline is split into swappable stages driven by detector, team
+classifier, pose estimator and vanishing-point estimator protocols. Downstream
+stages load upstream results from disk when available and recompute them in
+memory otherwise, so any subset of stages can be run independently.
 """
 
 import logging
@@ -17,6 +16,9 @@ from src.detection.yolo_detector import YOLODetector
 from src.models.detection import PlayerDetection
 from src.models.pose import PlayerPose
 from src.models.team import PlayerTeam
+from src.models.vanishing_point import VanishingPointResult
+from src.perspective.base import VanishingPointEstimator
+from src.perspective.field_vanishing_point import FieldVanishingPointEstimator
 from src.pose.base import PoseEstimator
 from src.pose.mediapipe_pose_estimator import MediaPipePoseEstimator
 from src.team.base import TeamClassifier
@@ -28,9 +30,11 @@ from src.utils.json_io import (
     save_detections,
     save_poses,
     save_teams,
+    save_vanishing_point,
 )
 from src.visualize.draw_pose import draw_poses
 from src.visualize.draw_teams import draw_team_assignments
+from src.visualize.draw_vanishing_point import draw_vanishing_point
 
 logger = logging.getLogger(__name__)
 
@@ -38,23 +42,25 @@ logger = logging.getLogger(__name__)
 def run_pipeline(
     input_path: Path,
     output_dir: Path,
-    stages: tuple[bool, bool, bool],
+    stages: tuple[bool, bool, bool, bool],
     *,
     detector: Detector | None = None,
     team_classifier: TeamClassifier | None = None,
     pose_estimator: PoseEstimator | None = None,
+    vanishing_point_estimator: VanishingPointEstimator | None = None,
 ) -> int:
     """Run the detection / team / pose pipeline.
 
-    ``stages`` is ``(run_detection, run_teams, run_poses)``; at least one stage
-    must be requested, otherwise ``ValueError`` is raised. Engines default to
-    the YOLO/KMeans/MediaPipe implementations; pass custom objects satisfying
-    the protocols to swap them (e.g. ``pose_estimator=YOLOPoseEstimator()``).
+    ``stages`` is ``(run_detection, run_teams, run_poses, run_vanishing_point)``;
+    at least one stage must be requested, otherwise ``ValueError`` is raised.
+    Engines default to the YOLO/KMeans/MediaPipe/OpenCV implementations; pass
+    custom objects satisfying the protocols to swap them.
     """
-    run_detection, run_teams, run_poses = stages
-    if not (run_detection or run_teams or run_poses):
+    run_detection, run_teams, run_poses, run_vanishing_point = stages
+    if not (run_detection or run_teams or run_poses or run_vanishing_point):
         raise ValueError(
-            "At least one stage must be enabled in `stages`; got (False, False, False)."
+            "At least one stage must be enabled in `stages`; "
+            "got (False, False, False, False)."
         )
 
     if not input_path.exists():
@@ -64,11 +70,20 @@ def run_pipeline(
     detections_dir = output_dir / "detections"
     teams_dir = output_dir / "teams"
     poses_dir = output_dir / "poses"
+    vanishing_point_dir = output_dir / "vanishing_point"
 
     image = load_image(input_path)
     stem = input_path.stem
     detections: list[PlayerDetection] | None = None
     teams: list[PlayerTeam] | None = None
+
+    if run_vanishing_point:
+        _run_vanishing_point(
+            vanishing_point_estimator or FieldVanishingPointEstimator(),
+            image,
+            stem,
+            vanishing_point_dir,
+        )
 
     if run_detection:
         detections = _run_detection(
@@ -157,6 +172,30 @@ def _run_poses(
     save_image(poses_image_path, pose_annotated_image)
     logger.info("Total players with valid poses: %d", len(poses))
     return poses
+
+
+def _run_vanishing_point(
+    estimator: VanishingPointEstimator,
+    image: np.ndarray,
+    stem: str,
+    vanishing_point_dir: Path,
+) -> VanishingPointResult:
+    result = estimator.estimate(image)
+    annotated_image = draw_vanishing_point(image, result)
+
+    json_path = vanishing_point_dir / f"{stem}_vanishing_point.json"
+    annotated_image_path = vanishing_point_dir / f"{stem}_vanishing_point.jpg"
+
+    save_vanishing_point(json_path, result)
+    save_image(annotated_image_path, annotated_image)
+    logger.info(
+        "Vanishing point: %s; lines detected/filtered/inliers: %d/%d/%d",
+        result.point,
+        result.detected_lines_count,
+        result.filtered_lines_count,
+        len(result.inlier_lines),
+    )
+    return result
 
 
 def _resolve_detections(
