@@ -21,6 +21,7 @@ from src.perspective.base import VanishingPointEstimator
 from src.perspective.field_vanishing_point import FieldVanishingPointEstimator
 from src.pose.base import PoseEstimator
 from src.pose.mediapipe_pose_estimator import MediaPipePoseEstimator
+from src.pose.yolo_pose_estimator import YOLOPoseEstimator
 from src.team.base import TeamClassifier
 from src.team.kmeans_classifier import KMeansTeamClassifier
 from src.utils.image import draw_detections, load_image, save_image
@@ -49,13 +50,6 @@ def run_pipeline(
     pose_estimator: PoseEstimator | None = None,
     vanishing_point_estimator: VanishingPointEstimator | None = None,
 ) -> int:
-    """Run the detection / team / pose pipeline.
-
-    ``stages`` is ``(run_detection, run_teams, run_poses, run_vanishing_point)``;
-    at least one stage must be requested, otherwise ``ValueError`` is raised.
-    Engines default to the YOLO/KMeans/MediaPipe/OpenCV implementations; pass
-    custom objects satisfying the protocols to swap them.
-    """
     run_detection, run_teams, run_poses, run_vanishing_point = stages
     if not (run_detection or run_teams or run_poses or run_vanishing_point):
         raise ValueError(
@@ -98,16 +92,14 @@ def run_pipeline(
         teams = _run_teams(classifier, image, detections, stem, teams_dir)
 
     if run_poses:
-        estimator = pose_estimator or MediaPipePoseEstimator()
+        estimator = pose_estimator or YOLOPoseEstimator()
         detections = _resolve_detections(
             detections, image, detections_dir / f"{stem}_detections.json", detector
         )
         teams = _resolve_teams(
             teams, image, detections, teams_dir / f"{stem}_teams.json", team_classifier
         )
-        _run_poses(
-            estimator, image, detections, teams, input_path, stem, poses_dir
-        )
+        _run_poses(estimator, image, detections, teams, input_path, stem, poses_dir)
 
     logger.info("Pipeline complete. Outputs saved under: %s", output_dir)
     return 0
@@ -162,7 +154,9 @@ def _run_poses(
     classified_ids = [team.player_id for team in teams]
     filtered_detections = [detections[i] for i in classified_ids]
 
-    poses = pose_estimator.estimate(image, filtered_detections, player_ids=classified_ids)
+    poses = pose_estimator.estimate(
+        image, filtered_detections, player_ids=classified_ids
+    )
     pose_annotated_image = draw_poses(image, poses)
 
     poses_json_path = poses_dir / f"{stem}_poses.json"
@@ -189,11 +183,16 @@ def _run_vanishing_point(
     save_vanishing_point(json_path, result)
     save_image(annotated_image_path, annotated_image)
     logger.info(
-        "Vanishing point: %s; lines detected/filtered/inliers: %d/%d/%d",
-        result.point,
+        "Vanishing points horizontal=%s vertical=%s; "
+        "lines detected=%d horizontal filtered/inliers=%d/%d "
+        "vertical filtered/inliers=%d/%d",
+        result.horizontal_point,
+        result.vertical_point,
         result.detected_lines_count,
-        result.filtered_lines_count,
-        len(result.inlier_lines),
+        result.horizontal_filtered_lines_count,
+        len(result.horizontal_inlier_lines),
+        result.vertical_filtered_lines_count,
+        len(result.vertical_inlier_lines),
     )
     return result
 

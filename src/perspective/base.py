@@ -7,4 +7,4 @@ from src.models.vanishing_point import VanishingPointResult
 
 class VanishingPointEstimator(Protocol):
     def estimate(self, image: np.ndarray) -> VanishingPointResult:
-        """Estimate the camera vanishing point from a football frame."""
+        """Estimate field vanishing points from a football frame."""

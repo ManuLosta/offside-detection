@@ -111,13 +111,37 @@ def save_teams(
 def save_vanishing_point(path: Path, result: VanishingPointResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if result.point is None:
-        payload = {"x": None, "y": None}
-    else:
-        payload = {
-            "x": round(result.point[0], 2),
-            "y": round(result.point[1], 2),
-        }
+    payload = {
+        "horizontal": {
+            "x": (
+                None
+                if result.horizontal_point is None
+                else round(result.horizontal_point[0], 2)
+            ),
+            "y": (
+                None
+                if result.horizontal_point is None
+                else round(result.horizontal_point[1], 2)
+            ),
+            "filtered_lines": result.horizontal_filtered_lines_count,
+            "inlier_lines": len(result.horizontal_inlier_lines),
+        },
+        "vertical": {
+            "x": (
+                None
+                if result.vertical_point is None
+                else round(result.vertical_point[0], 2)
+            ),
+            "y": (
+                None
+                if result.vertical_point is None
+                else round(result.vertical_point[1], 2)
+            ),
+            "filtered_lines": result.vertical_filtered_lines_count,
+            "inlier_lines": len(result.vertical_inlier_lines),
+        },
+        "detected_lines": result.detected_lines_count,
+    }
 
     logger.info("Saving vanishing point to: %s", path)
     with path.open("w", encoding="utf-8") as f:

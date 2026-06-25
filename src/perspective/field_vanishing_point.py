@@ -16,7 +16,9 @@ class FieldVanishingPointEstimator(VanishingPointEstimator):
         min_line_length: int = 100,
         hough_threshold: int = 80,
         max_line_gap: int = 40,
-        angle_range: tuple[float, float] = (18.0, 89.0),
+        horizontal_angle_range: tuple[float, float] = (0.0, 12.0),
+        vertical_angle_range: tuple[float, float] = (12.0, 89.0),
+        angle_range: tuple[float, float] | None = None,
         ransac_iterations: int = 3000,
         ransac_threshold: float = 25.0,
         random_seed: int = 7,
@@ -26,7 +28,10 @@ class FieldVanishingPointEstimator(VanishingPointEstimator):
         self.min_line_length = min_line_length
         self.hough_threshold = hough_threshold
         self.max_line_gap = max_line_gap
-        self.angle_range = angle_range
+        if angle_range is not None:
+            vertical_angle_range = angle_range
+        self.horizontal_angle_range = horizontal_angle_range
+        self.vertical_angle_range = vertical_angle_range
         self.ransac_iterations = ransac_iterations
         self.ransac_threshold = ransac_threshold
         self.random_seed = random_seed
@@ -37,14 +42,24 @@ class FieldVanishingPointEstimator(VanishingPointEstimator):
         saturation = cv2.bitwise_and(hsv[:, :, 1], hsv[:, :, 1], mask=field_mask)
         edges = self._detect_edges(saturation)
         lines = self._detect_lines(edges)
-        filtered_lines = self._filter_lines(lines)
-        point, inlier_lines = self._ransac(filtered_lines)
+        horizontal_lines, vertical_lines = self._split_horizontal_vertical_lines(lines)
+        horizontal_point, horizontal_inlier_lines = self._ransac(
+            horizontal_lines,
+            random_seed=self.random_seed,
+        )
+        vertical_point, vertical_inlier_lines = self._ransac(
+            vertical_lines,
+            random_seed=self.random_seed + 1,
+        )
 
         return VanishingPointResult(
-            point=point,
-            inlier_lines=inlier_lines,
+            horizontal_point=horizontal_point,
+            vertical_point=vertical_point,
+            horizontal_inlier_lines=horizontal_inlier_lines,
+            vertical_inlier_lines=vertical_inlier_lines,
             detected_lines_count=len(lines),
-            filtered_lines_count=len(filtered_lines),
+            horizontal_filtered_lines_count=len(horizontal_lines),
+            vertical_filtered_lines_count=len(vertical_lines),
         )
 
     def _segment_field(self, hsv: np.ndarray) -> np.ndarray:
@@ -70,23 +85,33 @@ class FieldVanishingPointEstimator(VanishingPointEstimator):
             return []
         return [tuple(int(v) for v in line[0]) for line in raw_lines]
 
-    def _filter_lines(self, lines: list[LineSegment]) -> list[LineSegment]:
-        min_angle, max_angle = self.angle_range
-        filtered: list[LineSegment] = []
+    def _split_horizontal_vertical_lines(
+        self, lines: list[LineSegment]
+    ) -> tuple[list[LineSegment], list[LineSegment]]:
+        horizontal_min, horizontal_max = self.horizontal_angle_range
+        vertical_min, vertical_max = self.vertical_angle_range
+        horizontal_lines: list[LineSegment] = []
+        vertical_lines: list[LineSegment] = []
+
         for line in lines:
-            angle = abs(_line_angle(line))
+            angle = _normalized_abs_angle(line)
             length = _line_length(line)
-            if length > self.min_line_length and min_angle <= angle <= max_angle:
-                filtered.append(line)
-        return filtered
+            if length <= self.min_line_length:
+                continue
+            if horizontal_min <= angle < horizontal_max:
+                horizontal_lines.append(line)
+            elif vertical_min <= angle <= vertical_max:
+                vertical_lines.append(line)
+
+        return horizontal_lines, vertical_lines
 
     def _ransac(
-        self, lines: list[LineSegment]
+        self, lines: list[LineSegment], *, random_seed: int
     ) -> tuple[Point | None, list[LineSegment]]:
         if len(lines) < 2:
             return None, []
 
-        rng = random.Random(self.random_seed)
+        rng = random.Random(random_seed)
         best_point: Point | None = None
         best_lines: list[LineSegment] = []
 
@@ -115,6 +140,13 @@ class FieldVanishingPointEstimator(VanishingPointEstimator):
 def _line_angle(line: LineSegment) -> float:
     x1, y1, x2, y2 = line
     return float(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+
+
+def _normalized_abs_angle(line: LineSegment) -> float:
+    angle = abs(_line_angle(line))
+    if angle > 90.0:
+        angle = 180.0 - angle
+    return float(angle)
 
 
 def _line_length(line: LineSegment) -> float:

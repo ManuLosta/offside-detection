@@ -17,7 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run football analytics stages on a match image: players, teams, "
-            "poses and camera vanishing point."
+            "poses and camera vanishing points."
         )
     )
     parser.add_argument(

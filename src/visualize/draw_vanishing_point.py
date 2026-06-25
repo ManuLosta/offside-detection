@@ -8,16 +8,33 @@ def draw_vanishing_point(
     image: np.ndarray,
     result: VanishingPointResult,
     *,
-    line_color: tuple[int, int, int] = (0, 255, 255),
-    point_color: tuple[int, int, int] = (0, 0, 255),
+    horizontal_line_color: tuple[int, int, int] = (255, 255, 0),
+    vertical_line_color: tuple[int, int, int] = (255, 0, 255),
+    horizontal_point_color: tuple[int, int, int] = (255, 255, 0),
+    vertical_point_color: tuple[int, int, int] = (255, 0, 255),
+    line_color: tuple[int, int, int] | None = None,
+    point_color: tuple[int, int, int] | None = None,
     thickness: int = 2,
 ) -> np.ndarray:
-    annotated = image.copy()
-    for line in result.inlier_lines:
-        _draw_clipped_line(annotated, line, line_color, thickness)
+    if line_color is not None:
+        horizontal_line_color = line_color
+        vertical_line_color = line_color
+    if point_color is not None:
+        horizontal_point_color = point_color
+        vertical_point_color = point_color
 
-    if result.point is not None:
-        _draw_point(annotated, result.point, point_color)
+    annotated = image.copy()
+    for line in result.horizontal_inlier_lines:
+        _draw_clipped_line(annotated, line, horizontal_line_color, thickness)
+
+    for line in result.vertical_inlier_lines:
+        _draw_clipped_line(annotated, line, vertical_line_color, thickness)
+
+    if result.horizontal_point is not None:
+        _draw_point(annotated, result.horizontal_point, "VP-H", horizontal_point_color)
+
+    if result.vertical_point is not None:
+        _draw_point(annotated, result.vertical_point, "VP-V", vertical_point_color)
 
     return annotated
 
@@ -47,6 +64,7 @@ def _draw_clipped_line(
 def _draw_point(
     image: np.ndarray,
     point: Point,
+    label: str,
     color: tuple[int, int, int],
 ) -> None:
     height, width = image.shape[:2]
@@ -56,7 +74,7 @@ def _draw_point(
         label_position = (min(x + 15, width - 1), max(y - 15, 0))
         cv2.putText(
             image,
-            "VP",
+            label,
             label_position,
             cv2.FONT_HERSHEY_SIMPLEX,
             1,
@@ -77,7 +95,7 @@ def _draw_point(
     )
     cv2.putText(
         image,
-        f"VP ({point[0]:.0f}, {point[1]:.0f})",
+        f"{label} ({point[0]:.0f}, {point[1]:.0f})",
         (min(border_point[0] + 12, width - 180), max(border_point[1] - 12, 24)),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.7,
