@@ -14,9 +14,11 @@ import numpy as np
 from src.detection.base import Detector
 from src.detection.yolo_detector import YOLODetector
 from src.models.detection import PlayerDetection
+from src.models.offside import OffsideResult
 from src.models.pose import PlayerPose
 from src.models.team import PlayerTeam
 from src.models.vanishing_point import VanishingPointResult
+from src.offside.calculator import OffsideCalculator
 from src.perspective.base import VanishingPointEstimator
 from src.perspective.field_vanishing_point import FieldVanishingPointEstimator
 from src.pose.base import PoseEstimator
@@ -27,12 +29,16 @@ from src.team.kmeans_classifier import KMeansTeamClassifier
 from src.utils.image import draw_detections, load_image, save_image
 from src.utils.json_io import (
     load_detections,
+    load_poses,
     load_teams,
+    load_vanishing_point,
     save_detections,
+    save_offside_result,
     save_poses,
     save_teams,
     save_vanishing_point,
 )
+from src.visualize.draw_offside import draw_offside_detection
 from src.visualize.draw_pose import draw_poses
 from src.visualize.draw_teams import draw_team_assignments
 from src.visualize.draw_vanishing_point import draw_vanishing_point
@@ -43,18 +49,27 @@ logger = logging.getLogger(__name__)
 def run_pipeline(
     input_path: Path,
     output_dir: Path,
-    stages: tuple[bool, bool, bool, bool],
+    stages: tuple[bool, bool, bool, bool] | tuple[bool, bool, bool, bool, bool],
     *,
     detector: Detector | None = None,
     team_classifier: TeamClassifier | None = None,
     pose_estimator: PoseEstimator | None = None,
     vanishing_point_estimator: VanishingPointEstimator | None = None,
+    offside_calculator: OffsideCalculator | None = None,
 ) -> int:
-    run_detection, run_teams, run_poses, run_vanishing_point = stages
-    if not (run_detection or run_teams or run_poses or run_vanishing_point):
+    run_detection, run_teams, run_poses, run_vanishing_point, run_offside = (
+        _normalize_stages(stages)
+    )
+    if not (
+        run_detection
+        or run_teams
+        or run_poses
+        or run_vanishing_point
+        or run_offside
+    ):
         raise ValueError(
             "At least one stage must be enabled in `stages`; "
-            "got (False, False, False, False)."
+            "got all False values."
         )
 
     if not input_path.exists():
@@ -65,14 +80,17 @@ def run_pipeline(
     teams_dir = output_dir / "teams"
     poses_dir = output_dir / "poses"
     vanishing_point_dir = output_dir / "vanishing_point"
+    offside_dir = output_dir / "offside"
 
     image = load_image(input_path)
     stem = input_path.stem
     detections: list[PlayerDetection] | None = None
     teams: list[PlayerTeam] | None = None
+    poses: list[PlayerPose] | None = None
+    vanishing_point: VanishingPointResult | None = None
 
     if run_vanishing_point:
-        _run_vanishing_point(
+        vanishing_point = _run_vanishing_point(
             vanishing_point_estimator or FieldVanishingPointEstimator(),
             image,
             stem,
@@ -99,10 +117,53 @@ def run_pipeline(
         teams = _resolve_teams(
             teams, image, detections, teams_dir / f"{stem}_teams.json", team_classifier
         )
-        _run_poses(estimator, image, detections, teams, input_path, stem, poses_dir)
+        poses = _run_poses(
+            estimator, image, detections, teams, input_path, stem, poses_dir
+        )
+
+    if run_offside:
+        estimator = pose_estimator or YOLOPoseEstimator()
+        detections = _resolve_detections(
+            detections, image, detections_dir / f"{stem}_detections.json", detector
+        )
+        teams = _resolve_teams(
+            teams, image, detections, teams_dir / f"{stem}_teams.json", team_classifier
+        )
+        poses = _resolve_poses(
+            poses,
+            image,
+            detections,
+            teams,
+            poses_dir / f"{stem}_poses.json",
+            estimator,
+        )
+        vanishing_point = _resolve_vanishing_point(
+            vanishing_point,
+            image,
+            vanishing_point_dir / f"{stem}_vanishing_point.json",
+            vanishing_point_estimator,
+        )
+        _run_offside(
+            offside_calculator or OffsideCalculator(),
+            image,
+            poses,
+            teams,
+            vanishing_point,
+            stem,
+            offside_dir,
+        )
 
     logger.info("Pipeline complete. Outputs saved under: %s", output_dir)
     return 0
+
+
+def _normalize_stages(
+    stages: tuple[bool, bool, bool, bool] | tuple[bool, bool, bool, bool, bool],
+) -> tuple[bool, bool, bool, bool, bool]:
+    if len(stages) == 4:
+        run_detection, run_teams, run_poses, run_vanishing_point = stages
+        return run_detection, run_teams, run_poses, run_vanishing_point, False
+    return stages
 
 
 def _run_detection(
@@ -197,6 +258,44 @@ def _run_vanishing_point(
     return result
 
 
+def _run_offside(
+    calculator: OffsideCalculator,
+    image: np.ndarray,
+    poses: list[PlayerPose],
+    teams: list[PlayerTeam],
+    vanishing_point: VanishingPointResult,
+    stem: str,
+    offside_dir: Path,
+) -> OffsideResult:
+    result = calculator.detect(poses, teams, vanishing_point)
+
+    if vanishing_point.vertical_point is None:
+        raise ValueError("Vertical vanishing point is required to draw offside line")
+
+    offside_json_path = offside_dir / f"{stem}_offside.json"
+    offside_image_path = offside_dir / f"{stem}_offside.jpg"
+    save_offside_result(offside_json_path, result)
+
+    offside_image = draw_offside_detection(
+        image,
+        result,
+        vanishing_point.vertical_point,
+    )
+    save_image(offside_image_path, offside_image)
+    logger.info(
+        "Offside detection complete: projected players=%d, offside attackers=%d, "
+        "reference defender=%s",
+        len(result.projected_players),
+        len(result.offside_attackers),
+        (
+            None
+            if result.reference_defender is None
+            else result.reference_defender.player_id
+        ),
+    )
+    return result
+
+
 def _resolve_detections(
     detections: list[PlayerDetection] | None,
     image: np.ndarray,
@@ -232,3 +331,43 @@ def _resolve_teams(
         teams_path,
     )
     return (team_classifier or KMeansTeamClassifier()).classify(image, detections)
+
+
+def _resolve_poses(
+    poses: list[PlayerPose] | None,
+    image: np.ndarray,
+    detections: list[PlayerDetection],
+    teams: list[PlayerTeam],
+    poses_path: Path,
+    pose_estimator: PoseEstimator,
+) -> list[PlayerPose]:
+    """Return poses from memory, or load/recompute them from disk."""
+    if poses is not None:
+        return poses
+    if poses_path.exists():
+        return load_poses(poses_path)
+    logger.warning(
+        "Poses not found at %s; running pose estimation in memory for offside stage.",
+        poses_path,
+    )
+    classified_ids = [team.player_id for team in teams]
+    filtered_detections = [detections[i] for i in classified_ids]
+    return pose_estimator.estimate(image, filtered_detections, player_ids=classified_ids)
+
+
+def _resolve_vanishing_point(
+    vanishing_point: VanishingPointResult | None,
+    image: np.ndarray,
+    vanishing_point_path: Path,
+    vanishing_point_estimator: VanishingPointEstimator | None,
+) -> VanishingPointResult:
+    """Return vanishing point result from memory, or load/recompute it from disk."""
+    if vanishing_point is not None:
+        return vanishing_point
+    if vanishing_point_path.exists():
+        return load_vanishing_point(vanishing_point_path)
+    logger.warning(
+        "Vanishing point not found at %s; running estimation in memory for offside stage.",
+        vanishing_point_path,
+    )
+    return (vanishing_point_estimator or FieldVanishingPointEstimator()).estimate(image)

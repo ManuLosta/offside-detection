@@ -1,6 +1,9 @@
 from pathlib import Path
 
-import torch
+try:
+    import torch
+except ModuleNotFoundError:
+    torch = None
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -25,4 +28,4 @@ POSES_OUTPUT_DIR = OUTPUT_DIR / "poses"
 VANISHING_POINT_OUTPUT_DIR = OUTPUT_DIR / "vanishing_point"
 DEFAULT_INPUT_IMAGE = INPUT_DIR / "match.jpg"
 
-DEVICE = "0" if torch.cuda.is_available() else "cpu"
+DEVICE = "0" if torch is not None and torch.cuda.is_available() else "cpu"
